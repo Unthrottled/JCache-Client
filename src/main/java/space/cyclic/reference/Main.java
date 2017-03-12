@@ -5,7 +5,9 @@ import com.hazelcast.client.cache.impl.HazelcastClientCachingProvider;
 import com.hazelcast.client.config.ClientConfig;
 import com.hazelcast.client.config.ClientNetworkConfig;
 import com.hazelcast.client.config.XmlClientConfigBuilder;
+import com.hazelcast.config.ClasspathXmlConfig;
 import com.hazelcast.config.GroupConfig;
+import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
 
 import javax.cache.Cache;
@@ -26,22 +28,19 @@ public class Main {
     private static final Duration TEN_SEC = new Duration(TimeUnit.SECONDS, 10);
 
     /**
-     * Be sure to have a hazelcast server set up and running with
-     * the javax.cache:cache-api:1.0.0 in the server's class path, with
+     * Be sure to remember have a hazelcast server set up and running with
+     * the javax.cache:cache-api:1.0.0 in the server's class path if not running
+     * a embedded hazelcast instance.
+     *
      * @param args
      * @throws IOException
      */
     public static void main(String... args) throws IOException {
-        ClientConfig clientConfig = new ClientConfig();
-        ClientNetworkConfig networkConfig = new ClientNetworkConfig();
-        networkConfig.setAddresses(Collections.singletonList("127.0.0.1:9001"));
-        clientConfig.setNetworkConfig(networkConfig);
-        GroupConfig groupConfig = new GroupConfig();
-        groupConfig.setName("cacheo");
-        groupConfig.setPassword("cacheo-pass");
-        clientConfig.setGroupConfig(groupConfig);
-        HazelcastInstance hazelcastInstance = HazelcastClient.newHazelcastClient(clientConfig);
-        try (CachingProvider cachingProvider = HazelcastClientCachingProvider.createCachingProvider(hazelcastInstance);
+        HazelcastInstance hazelcastServer = startEmbeddedServer();
+
+        ClientConfig clientConfig = new XmlClientConfigBuilder("space/cyclic/reference/hazelcast-client.xml").build();
+        HazelcastInstance hazelcasClient = HazelcastClient.newHazelcastClient(clientConfig);
+        try (CachingProvider cachingProvider = HazelcastClientCachingProvider.createCachingProvider(hazelcasClient);
              CacheManager cacheManager = cachingProvider.getCacheManager()) {
 
             Cache<String, Integer> cacho = cacheManager.createCache("Pooper", new MutableConfiguration<String, Integer>().setStoreByValue(true)
@@ -49,13 +48,26 @@ public class Main {
                     .setExpiryPolicyFactory(AccessedExpiryPolicy.factoryOf(TEN_SEC))
                     .setStatisticsEnabled(false));
             Stream.iterate(1, a -> a + 1).limit(30).forEach(i -> cacho.put("key" + i, i));
+
+            System.out.println("Items in the cache ");
+            cacho.forEach(stringIntegerEntry -> System.out.format("Key: %s Value: %s\n",stringIntegerEntry.getKey(), stringIntegerEntry.getValue()));
+            System.out.println();
+            System.out.println("-----------");
+            System.out.println("Waiting 10 Seconds\n");
             try {
-                sleep(2000);
+                sleep(10000);
             } catch (InterruptedException e) {
                 e.printStackTrace();
             }
-            cacho.forEach(System.out::println);
+            System.out.println("Items in the cache ");
+            cacho.forEach(stringIntegerEntry -> System.out.format("Key: %s Value: %s\n",stringIntegerEntry.getKey(), stringIntegerEntry.getValue()));
+            System.out.println("Shutting down");
         }
+        hazelcasClient.shutdown();
+        hazelcastServer.shutdown();
     }
 
+    private static HazelcastInstance startEmbeddedServer() {
+        return Hazelcast.newHazelcastInstance(new ClasspathXmlConfig("space/cyclic/reference/hazelcast.xml"));
+    }
 }
